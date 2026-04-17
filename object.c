@@ -93,8 +93,81 @@ int object_exists(const ObjectID *id) {
 // Returns 0 on success, -1 on error.
 int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out) {
     // TODO: Implement
-    (void)type; (void)data; (void)len; (void)id_out;
+  // TODO: Implement
+char header[64];
+const char *type_str;
+
+if (type == OBJ_BLOB) type_str = "blob";
+else if (type == OBJ_TREE) type_str = "tree";
+else if (type == OBJ_COMMIT) type_str = "commit";
+else return -1;
+
+// build header
+int header_len = snprintf(header, sizeof(header), "%s %zu", type_str, len);
+
+// total buffer
+size_t total_len = header_len + 1 + len;
+unsigned char *buffer = malloc(total_len);
+if (!buffer) return -1;
+
+// copy header + data
+memcpy(buffer, header, header_len);
+buffer[header_len] = '\0';
+memcpy(buffer + header_len + 1, data, len);
+
+// compute hash
+compute_hash(buffer, total_len, id_out);
+
+// dedup check
+if (object_exists(id_out)) {
+    free(buffer);
+    return 0;
+}
+
+// create path
+char hex[HASH_HEX_SIZE + 1];
+hash_to_hex(id_out, hex);
+
+char dir[512], path[512], tmp_path[512];
+snprintf(dir, sizeof(dir), "%s/%.2s", OBJECTS_DIR, hex);
+snprintf(path, sizeof(path), "%s/%s", dir, hex + 2);
+snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", path);
+
+// create dirs
+mkdir(OBJECTS_DIR, 0755);
+mkdir(dir, 0755);
+
+// write temp file
+int fd = open(tmp_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+if (fd < 0) {
+    free(buffer);
     return -1;
+}
+
+if (write(fd, buffer, total_len) != (ssize_t)total_len) {
+    close(fd);
+    free(buffer);
+    return -1;
+}
+
+fsync(fd);
+close(fd);
+
+// rename to final
+if (rename(tmp_path, path) != 0) {
+    free(buffer);
+    return -1;
+}
+
+// fsync directory
+int dir_fd = open(dir, O_RDONLY);
+if (dir_fd >= 0) {
+    fsync(dir_fd);
+    close(dir_fd);
+}
+
+free(buffer);
+return 0;
 }
 
 // Read an object from the store.
@@ -123,6 +196,78 @@ int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out
 // Returns 0 on success, -1 on error (file not found, corrupt, etc.).
 int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_t *len_out) {
     // TODO: Implement
-    (void)id; (void)type_out; (void)data_out; (void)len_out;
+  // TODO: Implement
+char path[512];
+object_path(id, path, sizeof(path));
+
+FILE *f = fopen(path, "rb");
+if (!f) return -1;
+
+// get file size
+fseek(f, 0, SEEK_END);
+size_t file_size = ftell(f);
+rewind(f);
+
+// read file
+unsigned char *buffer = malloc(file_size);
+if (!buffer) {
+    fclose(f);
     return -1;
+}
+
+if (fread(buffer, 1, file_size, f) != file_size) {
+    fclose(f);
+    free(buffer);
+    return -1;
+}
+fclose(f);
+
+// find header end
+char *null_pos = memchr(buffer, '\0', file_size);
+if (!null_pos) {
+    free(buffer);
+    return -1;
+}
+
+// parse type
+if (strncmp((char *)buffer, "blob", 4) == 0)
+    *type_out = OBJ_BLOB;
+else if (strncmp((char *)buffer, "tree", 4) == 0)
+    *type_out = OBJ_TREE;
+else if (strncmp((char *)buffer, "commit", 6) == 0)
+    *type_out = OBJ_COMMIT;
+else {
+    free(buffer);
+    return -1;
+}
+
+// parse size
+char *space = strchr((char *)buffer, ' ');
+if (!space) {
+    free(buffer);
+    return -1;
+}
+
+*len_out = strtoul(space + 1, NULL, 10);
+
+// verify hash
+ObjectID check;
+compute_hash(buffer, file_size, &check);
+
+if (memcmp(check.hash, id->hash, HASH_SIZE) != 0) {
+    free(buffer);
+    return -1;
+}
+
+// extract data
+*data_out = malloc(*len_out);
+if (!*data_out) {
+    free(buffer);
+    return -1;
+}
+
+memcpy(*data_out, null_pos + 1, *len_out);
+
+free(buffer);
+return 0;
 }
