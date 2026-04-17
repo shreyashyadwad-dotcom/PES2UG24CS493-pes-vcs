@@ -134,6 +134,7 @@ int tree_from_index(ObjectID *id_out) {
     // (See Lab Appendix for logical steps)
     int tree_from_index(ObjectID *id_out) {
     Index index;
+   Index index;
     if (index_load(&index) != 0) return -1;
 
     Tree tree;
@@ -147,7 +148,6 @@ int tree_from_index(ObjectID *id_out) {
         e->mode = index.entries[i].mode;
         e->hash = index.entries[i].hash;
 
-        // take only filename (ignore directories for Phase 2 basic)
         const char *name = strrchr(index.entries[i].path, '/');
         if (name) name++;
         else name = index.entries[i].path;
@@ -171,5 +171,4 @@ int tree_from_index(ObjectID *id_out) {
 
     free(data);
     return 0;
-}
 }
