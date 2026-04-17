@@ -1,7 +1,7 @@
 #include "pes.h"
 #include <stdlib.h>
 #include <stdio.h>
-
+#include <string.h>
 // ─── PROVIDED: Phase 5 Command Wrappers ─────────────────────────────────────
 
 // Usage: 
